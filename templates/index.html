@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Factory Reader</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+        .header { background: #1e293b; border-bottom: 1px solid #334155; padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; }
+        .header h1 { font-size: 1.5rem; color: #f8fafc; }
+        .ws-status { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
+        .ws-dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; }
+        .ws-dot.connected { background: #22c55e; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .section { background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1.5rem; }
+        .section h2 { font-size: 1.125rem; margin-bottom: 1rem; color: #94a3b8; }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
+        .form-group { display: flex; flex-direction: column; gap: 0.25rem; }
+        .form-group label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+        .form-group input, .form-group select { background: #0f172a; border: 1px solid #334155; border-radius: 0.5rem; padding: 0.5rem 0.75rem; color: #e2e8f0; font-size: 0.875rem; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #3b82f6; }
+        .protocol-fields { display: none; }
+        .protocol-fields.active { display: contents; }
+        .btn { padding: 0.5rem 1.25rem; border: none; border-radius: 0.5rem; cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: background 0.15s; }
+        .btn-primary { background: #3b82f6; color: white; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-success { background: #22c55e; color: white; }
+        .btn-success:hover { background: #16a34a; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-warning { background: #f59e0b; color: #1e293b; }
+        .btn-warning:hover { background: #d97706; }
+        .btn-sm { padding: 0.25rem 0.75rem; font-size: 0.75rem; }
+        .actions { display: flex; gap: 0.75rem; margin-top: 1rem; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 0.75rem; border-bottom: 1px solid #334155; font-size: 0.875rem; }
+        th { color: #64748b; font-weight: 500; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+        .badge { display: inline-block; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; }
+        .badge-mqtt { background: #7c3aed20; color: #a78bfa; }
+        .badge-opcua { background: #0891b220; color: #22d3ee; }
+        .badge-modbus { background: #ea580c20; color: #fb923c; }
+        .badge-s7 { background: #16a34a20; color: #4ade80; }
+        .log-panel { background: #0f172a; border: 1px solid #334155; border-radius: 0.5rem; max-height: 400px; overflow-y: auto; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.8rem; }
+        .log-entry { padding: 0.5rem 0.75rem; border-bottom: 1px solid #1e293b; display: flex; gap: 1rem; }
+        .log-time { color: #64748b; white-space: nowrap; }
+        .log-ok { color: #22c55e; }
+        .log-err { color: #ef4444; }
+        .empty { text-align: center; padding: 2rem; color: #475569; }
+        .monitoring { background: #22c55e15; }
+        .log-name { color: #93c5fd; font-weight: 500; min-width: 80px; }
+        .log-data { color: #cbd5e1; word-break: break-all; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Factory Reader</h1>
+        <div class="ws-status">
+            <div class="ws-dot" id="wsDot"></div>
+            <span id="wsLabel">Disconnected</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="section">
+            <h2>Add Connection</h2>
+            <form id="addForm">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Name</label>
+                        <input type="text" id="name" placeholder="My PLC" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Protocol</label>
+                        <select id="protocol" required>
+                            <option value="">Select...</option>
+                            <option value="mqtt">MQTT</option>
+                            <option value="opcua">OPC-UA</option>
+                            <option value="modbus">Modbus TCP</option>
+                            <option value="s7">Siemens S7</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Host</label>
+                        <input type="text" id="host" placeholder="192.168.1.100" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Port</label>
+                        <input type="number" id="port" placeholder="1883" required>
+                    </div>
+
+                    <!-- MQTT fields -->
+                    <div class="protocol-fields" data-protocol="mqtt">
+                        <div class="form-group">
+                            <label>Topic</label>
+                            <input type="text" id="topic" placeholder="factory/sensor/#">
+                        </div>
+                    </div>
+
+                    <!-- OPC-UA fields -->
+                    <div class="protocol-fields" data-protocol="opcua">
+                        <div class="form-group">
+                            <label>Node ID</label>
+                            <input type="text" id="node_id" placeholder="ns=2;s=Temperature">
+                        </div>
+                    </div>
+
+                    <!-- Modbus fields -->
+                    <div class="protocol-fields" data-protocol="modbus">
+                        <div class="form-group">
+                            <label>Unit ID</label>
+                            <input type="number" id="unit_id" value="1" min="0" max="255">
+                        </div>
+                    </div>
+                    <div class="protocol-fields" data-protocol="modbus">
+                        <div class="form-group">
+                            <label>Start Address</label>
+                            <input type="number" id="modbus_start" value="0" min="0">
+                        </div>
+                    </div>
+                    <div class="protocol-fields" data-protocol="modbus">
+                        <div class="form-group">
+                            <label>Quantity</label>
+                            <input type="number" id="modbus_qty" value="1" min="1">
+                        </div>
+                    </div>
+
+                    <!-- S7 fields -->
+                    <div class="protocol-fields" data-protocol="s7">
+                        <div class="form-group">
+                            <label>Rack</label>
+                            <input type="number" id="rack" value="0" min="0">
+                        </div>
+                    </div>
+                    <div class="protocol-fields" data-protocol="s7">
+                        <div class="form-group">
+                            <label>Slot</label>
+                            <input type="number" id="slot" value="1" min="0">
+                        </div>
+                    </div>
+                    <div class="protocol-fields" data-protocol="s7">
+                        <div class="form-group">
+                            <label>DB Number</label>
+                            <input type="number" id="db_number" value="1" min="0">
+                        </div>
+                    </div>
+                    <div class="protocol-fields" data-protocol="s7">
+                        <div class="form-group">
+                            <label>Start Address</label>
+                            <input type="number" id="s7_start" value="0" min="0">
+                        </div>
+                    </div>
+                    <div class="protocol-fields" data-protocol="s7">
+                        <div class="form-group">
+                            <label>Quantity (bytes)</label>
+                            <input type="number" id="s7_qty" value="1" min="1">
+                        </div>
+                    </div>
+                </div>
+                <div class="actions">
+                    <button type="submit" class="btn btn-primary">Save Connection</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="section">
+            <h2>Connections</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Protocol</th>
+                        <th>Host</th>
+                        <th>Port</th>
+                        <th>Details</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="connTable">
+                    <tr><td colspan="6" class="empty">No connections yet</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>Live Results</h2>
+            <div class="log-panel" id="logPanel">
+                <div class="empty" id="logEmpty">Run a test to see results here</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const portDefaults = { mqtt: 1883, opcua: 4840, modbus: 502, s7: 102 };
+        const protocolSelect = document.getElementById('protocol');
+        const portInput = document.getElementById('port');
+
+        protocolSelect.addEventListener('change', () => {
+            const proto = protocolSelect.value;
+            document.querySelectorAll('.protocol-fields').forEach(el => {
+                el.classList.toggle('active', el.dataset.protocol === proto);
+            });
+            if (portDefaults[proto]) portInput.value = portDefaults[proto];
+        });
+
+        // WebSocket
+        let ws;
+        function connectWS() {
+            const loc = window.location;
+            const wsUrl = (loc.protocol === 'https:' ? 'wss://' : 'ws://') + loc.host + '/ws';
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => {
+                document.getElementById('wsDot').classList.add('connected');
+                document.getElementById('wsLabel').textContent = 'Connected';
+            };
+            ws.onclose = () => {
+                document.getElementById('wsDot').classList.remove('connected');
+                document.getElementById('wsLabel').textContent = 'Disconnected';
+                setTimeout(connectWS, 3000);
+            };
+            ws.onmessage = (evt) => {
+                const data = JSON.parse(evt.data);
+                addLog(data);
+            };
+        }
+        connectWS();
+
+        function formatData(data) {
+            if (data === null || data === undefined) return 'connected';
+            if (typeof data === 'string') return data;
+            if (Array.isArray(data)) return data.map((v, i) => `[${i}]: ${v}`).join('  ');
+            return JSON.stringify(data, null, 2);
+        }
+
+        function addLog(data) {
+            const panel = document.getElementById('logPanel');
+            const empty = document.getElementById('logEmpty');
+            if (empty) empty.remove();
+
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const time = new Date(data.timestamp).toLocaleTimeString();
+            const status = data.connected ? 'OK' : 'FAIL';
+            const cls = data.connected ? 'log-ok' : 'log-err';
+            const detail = data.error || formatData(data.data);
+            const name = data.name || `${data.host}:${data.port}`;
+            entry.innerHTML = `<span class="log-time">${time}</span><span class="badge badge-${data.protocol}">${data.protocol.toUpperCase()}</span><span class="${cls}">${status}</span><span class="log-name">${name}</span><span class="log-data">${detail}</span>`;
+            panel.prepend(entry);
+        }
+
+        // Monitor state
+        const activeMonitors = new Set();
+        async function loadActiveMonitors() {
+            const resp = await fetch('/api/monitor');
+            const ids = await resp.json();
+            activeMonitors.clear();
+            if (ids) ids.forEach(id => activeMonitors.add(id));
+        }
+
+        async function startMonitor(id) {
+            await fetch(`/api/monitor/${id}`, { method: 'POST' });
+            activeMonitors.add(id);
+            loadConnections();
+        }
+
+        async function stopMonitor(id) {
+            await fetch(`/api/monitor/${id}`, { method: 'DELETE' });
+            activeMonitors.delete(id);
+            loadConnections();
+        }
+
+        // Load connections
+        async function loadConnections() {
+            const resp = await fetch('/api/connections');
+            const conns = await resp.json();
+            const tbody = document.getElementById('connTable');
+            if (!conns || conns.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty">No connections yet</td></tr>';
+                return;
+            }
+            tbody.innerHTML = conns.map(c => {
+                let details = '';
+                switch (c.protocol) {
+                    case 'mqtt': details = `Topic: ${c.topic}`; break;
+                    case 'opcua': details = `Node: ${c.node_id}`; break;
+                    case 'modbus': details = `Unit: ${c.unit_id}, Addr: ${c.start_address}, Qty: ${c.quantity}`; break;
+                    case 's7': details = `R${c.rack}/S${c.slot} DB${c.db_number} @${c.start_address}[${c.quantity}]`; break;
+                }
+                const isMonitoring = activeMonitors.has(c.id);
+                return `<tr class="${isMonitoring ? 'monitoring' : ''}">
+                    <td>${c.name}</td>
+                    <td><span class="badge badge-${c.protocol}">${c.protocol.toUpperCase()}</span></td>
+                    <td>${c.host}</td>
+                    <td>${c.port}</td>
+                    <td>${details}</td>
+                    <td>
+                        <button class="btn btn-success btn-sm" onclick="testConn(${c.id})">Test</button>
+                        ${isMonitoring
+                            ? `<button class="btn btn-warning btn-sm" onclick="stopMonitor(${c.id})">Stop</button>`
+                            : `<button class="btn btn-primary btn-sm" onclick="startMonitor(${c.id})">Monitor</button>`
+                        }
+                        <button class="btn btn-danger btn-sm" onclick="deleteConn(${c.id})">Delete</button>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+        loadActiveMonitors().then(loadConnections);
+
+        // Add connection
+        document.getElementById('addForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const proto = document.getElementById('protocol').value;
+            const body = {
+                name: document.getElementById('name').value,
+                protocol: proto,
+                host: document.getElementById('host').value,
+                port: parseInt(document.getElementById('port').value),
+                topic: document.getElementById('topic')?.value || '',
+                node_id: document.getElementById('node_id')?.value || '',
+                unit_id: parseInt(document.getElementById('unit_id')?.value || '1'),
+                rack: parseInt(document.getElementById('rack')?.value || '0'),
+                slot: parseInt(document.getElementById('slot')?.value || '1'),
+                db_number: parseInt(document.getElementById('db_number')?.value || '1'),
+                start_address: parseInt(document.getElementById(proto === 's7' ? 's7_start' : 'modbus_start')?.value || '0'),
+                quantity: parseInt(document.getElementById(proto === 's7' ? 's7_qty' : 'modbus_qty')?.value || '1'),
+            };
+            await fetch('/api/connections', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+            e.target.reset();
+            loadConnections();
+        });
+
+        async function testConn(id) {
+            await fetch(`/api/test/${id}`, { method: 'POST' });
+        }
+
+        async function deleteConn(id) {
+            await fetch(`/api/connections/${id}`, { method: 'DELETE' });
+            loadConnections();
+        }
+    </script>
+</body>
+</html>
